@@ -8,10 +8,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "esp_timer.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_lcd_io_i2c.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_interface.h"
@@ -76,44 +77,44 @@ typedef struct {
 
 typedef struct {
     SemaphoreHandle_t tp_intr_event;    /*!< Semaphore for tp interrupt */
-    lv_disp_rot_t rotate;               /*!< Rotation configuration for the display */
+    lv_display_rotation_t rotate;       /*!< Rotation configuration for the display */
 } bsp_touch_int_t;
 
-static lv_disp_t *disp;
+static lv_display_t *disp;
 static lv_indev_t *disp_indev = NULL;
 static esp_lcd_touch_handle_t tp = NULL;   // LCD touch handle
 static esp_lcd_panel_handle_t panel_handle = NULL;
 
-static bool i2c_initialized = false;
+static i2c_master_bus_handle_t i2c_bus = NULL;
 
 esp_err_t bsp_i2c_init(void)
 {
-    /* I2C was initialized before */
-    if (i2c_initialized) {
+    if (i2c_bus) {
         return ESP_OK;
     }
 
-    const i2c_config_t i2c_conf = {
-        .mode = I2C_MODE_MASTER,
+    const i2c_master_bus_config_t i2c_conf = {
+        .i2c_port = BSP_I2C_NUM,
         .sda_io_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_SDA,
-        .sda_pullup_en = GPIO_PULLUP_DISABLE,
         .scl_io_num = EXAMPLE_PIN_NUM_QSPI_TOUCH_SCL,
-        .scl_pullup_en = GPIO_PULLUP_DISABLE,
-        .master.clk_speed = BSP_I2C_CLK_SPEED_HZ
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = false,
     };
-    BSP_ERROR_CHECK_RETURN_ERR(i2c_param_config(BSP_I2C_NUM, &i2c_conf));
-    BSP_ERROR_CHECK_RETURN_ERR(i2c_driver_install(BSP_I2C_NUM, i2c_conf.mode, 0, 0, 0));
-
-    i2c_initialized = true;
-
-    return ESP_OK;
+    return i2c_new_master_bus(&i2c_conf, &i2c_bus);
 }
 
 esp_err_t bsp_i2c_deinit(void)
 {
-    BSP_ERROR_CHECK_RETURN_ERR(i2c_driver_delete(BSP_I2C_NUM));
-    i2c_initialized = false;
-    return ESP_OK;
+    if (!i2c_bus) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t ret = i2c_del_master_bus(i2c_bus);
+    if (ret == ESP_OK) {
+        i2c_bus = NULL;
+    }
+    return ret;
 }
 
 // Bit number used to represent command and parameter
@@ -254,6 +255,7 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
     const esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = EXAMPLE_PIN_NUM_QSPI_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .data_endian = LCD_RGB_DATA_ENDIAN_BIG,
         .bits_per_pixel = BSP_LCD_BITS_PER_PIXEL,
         .vendor_config = (void *) &vendor_config,
     };
@@ -327,7 +329,7 @@ err:
     return ret;
 }
 
-static lv_disp_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
+static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
 {
     assert(cfg != NULL);
     esp_lcd_panel_io_handle_t io_handle = NULL;
@@ -364,7 +366,7 @@ static lv_disp_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
         },
     };
 
-    if (disp_cfg.sw_rotate == LV_DISP_ROT_180 || disp_cfg.sw_rotate == LV_DISP_ROT_NONE) {
+    if (disp_cfg.sw_rotate == LV_DISPLAY_ROTATION_180 || disp_cfg.sw_rotate == LV_DISPLAY_ROTATION_0) {
         disp_cfg.hres = hres;
         disp_cfg.vres = vres;
     } else {
@@ -410,15 +412,15 @@ static void bsp_touch_process_points_cb(esp_lcd_touch_handle_t tp, uint16_t *x, 
     bsp_touch_int_t *touch_handle = (bsp_touch_int_t *)tp->config.user_data;
 
     for (int i = 0; i < *point_num; i++) {
-        if (LV_DISP_ROT_270 == touch_handle->rotate) {
+        if (LV_DISPLAY_ROTATION_270 == touch_handle->rotate) {
             tmp = x[i];
             x[i] = tp->config.y_max - y[i];
             y[i] = tmp;
-        } else if (LV_DISP_ROT_180 == touch_handle->rotate) {
+        } else if (LV_DISPLAY_ROTATION_180 == touch_handle->rotate) {
             tmp = x[i];
             x[i] = tp->config.x_max - x[i];
             y[i] = tp->config.y_max - y[i];
-        } else if (LV_DISP_ROT_90 == touch_handle->rotate) {
+        } else if (LV_DISPLAY_ROTATION_90 == touch_handle->rotate) {
             tmp = x[i];
             x[i] = y[i];
             y[i] = tp->config.x_max - tmp;
@@ -456,9 +458,10 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *config, esp_lcd_touch_handle_t 
 
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_lcd_touch_handle_t tp_handle = NULL;
-    const esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_AXS15231B_CONFIG();
+    esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_AXS15231B_CONFIG();
+    tp_io_config.scl_speed_hz = BSP_I2C_CLK_SPEED_HZ;
 
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)BSP_I2C_NUM, &tp_io_config, &tp_io_handle), TAG, "");
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c(i2c_bus, &tp_io_config, &tp_io_handle), TAG, "");
     ESP_RETURN_ON_ERROR(esp_lcd_touch_new_i2c_axs15231b(tp_io_handle, &tp_cfg, &tp_handle), TAG, "New axs15231b failed");
 
     touch_ctx = malloc(sizeof(bsp_touch_int_t));
@@ -495,7 +498,7 @@ err:
     return ret;
 }
 
-static lv_indev_t *bsp_display_indev_init(const bsp_display_cfg_t *config, lv_disp_t *disp)
+static lv_indev_t *bsp_display_indev_init(const bsp_display_cfg_t *config, lv_display_t *disp)
 {
     BSP_ERROR_CHECK_RETURN_NULL(bsp_touch_new(config, &tp));
     assert(tp);
@@ -510,7 +513,7 @@ static lv_indev_t *bsp_display_indev_init(const bsp_display_cfg_t *config, lv_di
     return lvgl_port_add_touch(&touch_cfg);
 }
 
-lv_disp_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
+lv_display_t *bsp_display_start_with_config(const bsp_display_cfg_t *cfg)
 {
     BSP_ERROR_CHECK_RETURN_NULL(lvgl_port_init(&cfg->lvgl_port_cfg));
 

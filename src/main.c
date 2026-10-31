@@ -1,5 +1,6 @@
-
-// #include <Arduino.h>
+#include <inttypes.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <lvgl.h>
 #include "display.h"
 #include "esp_bsp.h"
@@ -9,10 +10,9 @@
 #include <esp_chip_info.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include <ui/ui.h>
 
 static const char *TAG = "DEMO_LVGL";
-
-#define BUILD (String(__DATE__) + " - " + String(__TIME__)).c_str()
 
 #define logSection(section) \
   ESP_LOGI(TAG, "\n\n************* %s **************\n", section);
@@ -28,29 +28,20 @@ static const char *TAG = "DEMO_LVGL";
  */
 #define LVGL_PORT_ROTATION_DEGREE (90)
 
-/**
- * To use the built-in examples and demos of LVGL uncomment the includes below respectively.
- * You also need to copy `lvgl/examples` to `lvgl/src/examples`. Similarly for the demos `lvgl/demos` to `lvgl/src/demos`.
- */
-#include <demos/lv_demos.h>
-// #include <examples/lv_examples.h>
+static void setup(void);
+static void loop(void);
 
-void setup();
-
-#if !CONFIG_AUTOSTART_ARDUINO
-void app_main()
+void app_main(void)
 {
-  // initialize arduino library before we start the tasks
-  // initArduino();
-
   setup();
+  while (true)
+  {
+    loop();
+  }
 }
-#endif
-void setup()
-{
-  //  String title = "LVGL porting example";
 
-  // Serial.begin(115200);
+static void setup(void)
+{
   logSection("LVGL porting example start");
   esp_chip_info_t chip_info;
   uint32_t flash_size;
@@ -84,13 +75,13 @@ void setup()
       .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
       .buffer_size = EXAMPLE_LCD_QSPI_H_RES * EXAMPLE_LCD_QSPI_V_RES,
 #if LVGL_PORT_ROTATION_DEGREE == 90
-      .rotate = LV_DISP_ROT_90,
+      .rotate = LV_DISPLAY_ROTATION_90,
 #elif LVGL_PORT_ROTATION_DEGREE == 270
-      .rotate = LV_DISP_ROT_270,
+      .rotate = LV_DISPLAY_ROTATION_270,
 #elif LVGL_PORT_ROTATION_DEGREE == 180
-      .rotate = LV_DISP_ROT_180,
+      .rotate = LV_DISPLAY_ROTATION_180,
 #elif LVGL_PORT_ROTATION_DEGREE == 0
-      .rotate = LV_DISP_ROT_NONE,
+      .rotate = LV_DISPLAY_ROTATION_0,
 #endif
   };
 
@@ -98,33 +89,26 @@ void setup()
   bsp_display_backlight_on();
 
   logSection("Create UI");
-  /* Lock the mutex due to the LVGL APIs are not thread-safe */
   bsp_display_lock(0);
-
-  /**`
-   * Try an example. Don't forget to uncomment header.
-   * See all the examples online: https://docs.lvgl.io/master/examples.html
-   * source codes: https://github.com/lvgl/lvgl/tree/e7f88efa5853128bf871dde335c0ca8da9eb7731/examples
-   */
-  //  lv_example_btn_1();
-
-  /**
-   * Or try out a demo.
-   * Don't forget to uncomment header and enable the demos in `lv_conf.h`. E.g. `LV_USE_DEMOS_WIDGETS`
-   */
-  lv_demo_widgets();
-  //     lv_demo_benchmark();
-  // lv_demo_music();
-  // lv_demo_stress();
-
-  /* Release the mutex */
+  ui_init();
   bsp_display_unlock();
 
   logSection("LVGL porting example end");
 }
 
-void loop()
+static void loop(void)
 {
-  ESP_LOGI(TAG, "IDLE loop");
+  if (lvgl_port_lock(5))
+  {
+    // displayData();
+    // if (g_currentScreen >= 0)
+    // {
+    ui_tick();
+    // }
+
+    lvgl_port_unlock();
+  }
+  // theme_colors[1][1] = 0xffff00;
+  vTaskDelay(pdMS_TO_TICKS(20));
   // delay(1000);
 }
