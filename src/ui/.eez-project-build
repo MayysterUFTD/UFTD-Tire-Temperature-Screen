@@ -11,8 +11,13 @@
     "styles.h",
     "ui.c",
     "ui.h",
+    "ui_font_orb16.c",
+    "ui_font_orb17.c",
     "ui_font_orb18.c",
+    "ui_font_orb19.c",
     "ui_font_orb50.c",
+    "ui_font_orb51.c",
+    "ui_font_orb75.c",
     "ui_font_orbitron14.c",
     "vars.h"
   ]

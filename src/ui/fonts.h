@@ -10,6 +10,11 @@ extern "C" {
 extern const lv_font_t ui_font_orbitron14;
 extern const lv_font_t ui_font_orb18;
 extern const lv_font_t ui_font_orb50;
+extern const lv_font_t ui_font_orb75;
+extern const lv_font_t ui_font_orb17;
+extern const lv_font_t ui_font_orb16;
+extern const lv_font_t ui_font_orb19;
+extern const lv_font_t ui_font_orb51;
 
 #ifndef EXT_FONT_DESC_T
 #define EXT_FONT_DESC_T

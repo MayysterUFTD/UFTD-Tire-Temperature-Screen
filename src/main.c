@@ -11,6 +11,7 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <ui/ui.h>
+#include "thermal_receiver.h"
 
 static const char *TAG = "DEMO_LVGL";
 
@@ -92,12 +93,14 @@ static void setup(void)
   bsp_display_lock(0);
   ui_init();
   bsp_display_unlock();
+  thermal_receiver_init();
 
   logSection("LVGL porting example end");
 }
 
 static void loop(void)
 {
+  thermal_receiver_process();
   if (lvgl_port_lock(5))
   {
     // displayData();
@@ -109,6 +112,6 @@ static void loop(void)
     lvgl_port_unlock();
   }
   // theme_colors[1][1] = 0xffff00;
-  vTaskDelay(pdMS_TO_TICKS(20));
+  vTaskDelay(pdMS_TO_TICKS(2));
   // delay(1000);
 }
